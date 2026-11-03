@@ -1,0 +1,67 @@
+(function (root, factory) {
+  const api = factory();
+  if (typeof module !== "undefined" && module.exports) module.exports = api;
+  root.SeatBooking = api;
+})(typeof globalThis !== "undefined" ? globalThis : this, function () {
+  "use strict";
+
+  function seatId(row, number) { return `${row}${number}`; }
+
+  function getSeatPrice(event, id) {
+    const row = id[0];
+    const category = event.rows[row];
+    if (!category || !Number.isInteger(event.categories[category])) {
+      throw new Error(`Unknown seat or category: ${id}`);
+    }
+    return event.categories[category];
+  }
+
+  function getProblems(event, selected) {
+    const chosen = new Set(selected);
+    const sold = new Set(event.sold || []);
+    const problems = [];
+
+    if (chosen.size === 0) problems.push("Select at least one seat.");
+    if (chosen.size > 6) problems.push("You can book a maximum of 6 seats.");
+
+    for (const row of Object.keys(event.rows)) {
+      for (let n = 1; n <= 10; n += 1) {
+        const id = seatId(row, n);
+        if (!chosen.has(id)) continue;
+
+        // A free seat is orphaned when it touches a selected seat and its
+        // other side is blocked (sold, selected, or the end of the row).
+        for (const neighbor of [n - 1, n + 1]) {
+          if (neighbor < 1 || neighbor > 10) continue;
+          const freeId = seatId(row, neighbor);
+          if (chosen.has(freeId) || sold.has(freeId)) continue;
+
+          const beyond = neighbor < n ? neighbor - 1 : neighbor + 1;
+          const beyondBlocked = beyond < 1 || beyond > 10 ||
+            chosen.has(seatId(row, beyond)) || sold.has(seatId(row, beyond));
+          if (beyondBlocked) {
+            problems.push(`${freeId} would be left as a single free seat in row ${row}.`);
+          }
+        }
+      }
+    }
+
+    return [...new Set(problems)];
+  }
+
+  function calculatePrice(event, selected) {
+    const subtotal = selected.reduce((sum, id) => sum + getSeatPrice(event, id), 0);
+    const discount = selected.length >= 4 ? Math.round(subtotal * 0.10) : 0;
+    return { subtotal, discount, total: subtotal - discount };
+  }
+
+  function toggleSeat(event, selected, id) {
+    if ((event.sold || []).includes(id)) return { selected: [...selected], problems: ["That seat has already been sold."] };
+    const next = selected.includes(id)
+      ? selected.filter(item => item !== id)
+      : [...selected, id];
+    return { selected: next, problems: getProblems(event, next) };
+  }
+
+  return { getSeatPrice, getProblems, calculatePrice, toggleSeat };
+});
